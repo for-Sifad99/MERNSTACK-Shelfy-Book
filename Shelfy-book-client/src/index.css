@@ -1,0 +1,27 @@
+/* Import goggle font */
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+
+/* Package imports */
+@import 'tailwindcss';
+@plugin "daisyui";
+
+/* Theme related setting */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Font Setting */
+* {
+  font-family: "Inter", sans-serif;
+  font-optical-sizing: auto;
+  font-style: normal;
+}
+
+/* Website reusable colors */
+@theme {
+  --color-light-primary: #f1f5f9;
+  --color-dark-primary: #241442;
+  --color-dark-secondary: #036280;
+  --color-light-secondary: #4f9db4;
+  --color-light-accent: #d0e1e7;
+  --color-primary-orange: #ff6500;
+  --color-bg: #23272f;
+}
