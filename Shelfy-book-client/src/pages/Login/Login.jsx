@@ -1,5 +1,5 @@
-import React, { useRef, useState } from "react";
-import { Link, useLocation, useNavigate, } from "react-router";
+import React, { useCallback, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { Helmet } from "react-helmet-async";
 import leftBook from '../../assets/commonBanners/leftBook.png';
 import rightBook from '../../assets/commonBanners/rightBook.png';
@@ -7,149 +7,315 @@ import { IoIosArrowForward } from "react-icons/io";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import Swal from "sweetalert2";
 import { toast } from "react-toastify";
-import useAuth from "../../hooks/useAuth";
+import useAuth from "../../hooks/UseAuth";
+import useAxiosSecure from "../../hooks/useAxiosSecure";
+import { getUserByEmail, createUser as createDbUser } from "../../api/userApis";
+import { useUserCreation } from "../../contexts/UserCreationContext";
+import { getFirebaseErrorMessage } from "../../utils/firebaseErrorUtils";
 
+// Login component with enhanced authentication flow
 const Login = () => {
-    const { setUser, signInUser, createGoogleUser, forgotPassword } = useAuth();
+    const { setUser, signInUser, createGoogleUser, forgotPassword, signOutUser } = useAuth();
+    const { setUserCreated } = useUserCreation();
+    const axiosSecure = useAxiosSecure();
     const [showPassword, setShowPassword] = useState(false);
     const navigate = useNavigate();
     const emailRef = useRef();
     const location = useLocation();
     const from = location?.state || '/';
 
-    const handleLogin = async (e) => {
+    // Function to insert user into database (for Google login)
+    const insertUserIntoDatabase = useCallback(async (user) => {
+        try {
+            const userData = {
+                name: user.displayName || '',
+                email: user.email,
+                photo: user.photoURL || '',
+                role: 'user'
+            };
+            
+            const result = await createDbUser(axiosSecure, userData);
+            
+            // Set the user creation status in context
+            setUserCreated(user.email);
+            
+            return result;
+        } catch (dbError) {
+            // If user already exists, the API will return a 409 conflict
+            // This is expected and fine - it means the user is already in the database
+            if (dbError.response?.status === 409) {
+                // Set flag even for existing users
+                setUserCreated(user.email);
+                return;
+            } else {
+                toast.error('Failed to save user information. Please contact support.');
+                throw dbError; // Re-throw the error so the calling function knows it failed
+            }
+        }
+    }, [axiosSecure, setUserCreated]);
+
+    // Memoized login handler
+    const handleLogin = useCallback(async (e) => {
         e.preventDefault();
 
         // Form data:
         const form = e.target;
         const email = form.email.value;
         const password = form.password.value;
-        // console.log(email, password);
 
-        //? SignIn User:
         try {
-            const user = await signInUser(email, password);
-            const currentUser = user;
+            const userCredential = await signInUser(email, password);
+            const currentUser = userCredential.user;
 
-            // Sweet Alert :
-            const Toast = Swal.mixin({
+            // Check if email is verified for email/password users
+            if (!currentUser.emailVerified && currentUser.providerData[0]?.providerId === 'password') {
+                Swal.fire({
+                    toast: true,
+                    position: "top-end",
+                    showConfirmButton: false,
+                    timer: 5000,
+                    timerProgressBar: true,
+                    icon: "warning",
+                    title: "Email not verified! Please check your email for verification link."
+                });
+                
+                // Redirect to email verification page
+                setTimeout(() => {
+                    navigate('/email-verification');
+                }, 3000);
+                return;
+            }
+
+            // For email/password login, ensure user exists in our database
+            try {
+                const dbResult = await insertUserIntoDatabase(currentUser);
+                console.log('User verified in database:', dbResult);
+            } catch (insertError) {
+                // If we can't insert the user into the database, we should sign them out
+                try {
+                    await signOutUser();
+                } catch (signOutError) {
+                    console.error('Failed to sign out user:', signOutError);
+                }
+                toast.error('Failed to verify account. Please try again.');
+                return;
+            }
+
+            // Check if user is admin
+            try {
+                const userData = await getUserByEmail(axiosSecure, currentUser.email);
+                // Dispatch role change event to update UI components
+                window.dispatchEvent(new Event('roleChange'));
+                if (userData.role === 'admin') {
+                    // Redirect admin users to admin dashboard
+                    setTimeout(() => {
+                        navigate('/admin-dashboard');
+                    }, 300);
+                } else {
+                    // Redirect regular users to user dashboard
+                    setTimeout(() => {
+                        navigate('/user-dashboard');
+                    }, 300);
+                }
+            } catch (error) {
+                // If user not found (404), this means they exist in Firebase but not in our database
+                if (error.response?.status === 404) {
+                    // This is an edge case - user exists in Firebase but not in our database
+                    // We should sign them out and prompt them to register
+                    toast.error('Account not found in our system. Please register first.');
+                    try {
+                        await signOutUser();
+                    } catch (signOutError) {
+                        console.error('Failed to sign out user:', signOutError);
+                    }
+                    // Redirect to register page
+                    setTimeout(() => {
+                        navigate('/register');
+                    }, 300);
+                } else {
+                    // For other errors, redirect to user dashboard as fallback
+                    // Dispatch role change event to update UI components
+                    window.dispatchEvent(new Event('roleChange'));
+                    setTimeout(() => {
+                        navigate('/user-dashboard');
+                    }, 300);
+                }
+            }
+
+            // Success notification
+            Swal.fire({
                 toast: true,
                 position: "top-end",
                 showConfirmButton: false,
                 timer: 3000,
                 timerProgressBar: true,
-                didOpen: (toast) => {
-                    toast.onmouseenter = Swal.stopTimer;
-                    toast.onmouseleave = Swal.resumeTimer;
-                }
-            });
-            Toast.fire({
                 icon: "success",
                 title: "Logged in successfully!!"
             });
 
-            setTimeout(() => {
-                setUser(currentUser);
-                navigate(from);
-            }, 3000);
+            setUser(currentUser);
         }
 
-        // Error handling :
+        // Error handling
         catch (err) {
-            if (err.code === 'auth/invalid-credential') {
-                toast.error('Wrong email or password! Or continue with google.');
-            } else if (err.code === 'auth/invalid-email') {
-                toast.error('Please enter email!');
-            } else if (err.code === 'auth/missing-password') {
-                toast.error('Please enter password!');
-            } else {
-                toast.error('Something went wrong. Please try again later!');
-            };
-        };
-    };
+            console.error('Login error:', err);
+            const errorMessage = getFirebaseErrorMessage(err);
+            toast.error(errorMessage);
+        }
+    }, [signInUser, setUser, navigate, axiosSecure, signOutUser]);
 
-    const handleGoogleLogin = async () => {
-        //? Login User with Google:
-        const user = await createGoogleUser();
-        const currentUser = user;
-
-        // Sweet Alert :
-        const Toast = Swal.mixin({
-            toast: true,
-            position: "top-end",
-            showConfirmButton: false,
-            timer: 3000,
-            timerProgressBar: true,
-            didOpen: (toast) => {
-                toast.onmouseenter = Swal.stopTimer;
-                toast.onmouseleave = Swal.resumeTimer;
+    // Memoized Google login handler
+    const handleGoogleLogin = useCallback(async () => {
+        try {
+            const userCredential = await createGoogleUser();
+            const currentUser = userCredential.user;
+            
+            // For Google login, we need to ensure the user exists in our database
+            // This handles both login and registration cases
+            try {
+                const dbResult = await insertUserIntoDatabase(currentUser);
+                console.log('User verified in database:', dbResult);
+            } catch (insertError) {
+                // If we can't insert the user into the database, we should sign them out
+                try {
+                    await signOutUser();
+                } catch (signOutError) {
+                    console.error('Failed to sign out user:', signOutError);
+                }
+                toast.error('Failed to create account. Please try again.');
+                return;
             }
-        });
-        Toast.fire({
-            icon: "success",
-            title: "Logged in successfully!!"
-        });
+            
+            // Add a small delay to ensure database consistency
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // Now that we've ensured the user exists in the database, check their role
+            try {
+                const userData = await getUserByEmail(axiosSecure, currentUser.email);
+                // Dispatch role change event to update UI components
+                window.dispatchEvent(new Event('roleChange'));
+                if (userData.role === 'admin') {
+                    // Redirect admin users to admin dashboard
+                    setTimeout(() => {
+                        navigate('/admin-dashboard');
+                    }, 300);
+                } else {
+                    // Redirect regular users to user dashboard
+                    setTimeout(() => {
+                        navigate('/user-dashboard');
+                    }, 300);
+                }
+            } catch (error) {
+                // If user not found (404), this means they exist in Firebase but not in our database
+                if (error.response?.status === 404) {
+                    // This is expected for new Google users - assume regular user role
+                    // Dispatch role change event to update UI components
+                    window.dispatchEvent(new Event('roleChange'));
+                    setTimeout(() => {
+                        navigate('/user-dashboard');
+                    }, 300);
+                } else {
+                    // For other errors, redirect to user dashboard as fallback
+                    // Dispatch role change event to update UI components
+                    window.dispatchEvent(new Event('roleChange'));
+                    setTimeout(() => {
+                        navigate('/user-dashboard');
+                    }, 300);
+                }
+            }
 
-        setTimeout(() => {
+            // Success notification
+            Swal.fire({
+                toast: true,
+                position: "top-end",
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true,
+                icon: "success",
+                title: "Logged in successfully!!"
+            });
+
             setUser(currentUser);
-            navigate(from);
-        }, 3000);
-    };
+        } catch (err) {
+            console.error('Google login error:', err);
+            const errorMessage = getFirebaseErrorMessage(err);
+            toast.error(errorMessage);
+        }
+    }, [createGoogleUser, setUser, navigate, axiosSecure, signOutUser, insertUserIntoDatabase]);
 
-    const handleForgotPassword = async () => {
+    // Memoized forgot password handler
+    const handleForgotPassword = useCallback(async () => {
         const email = emailRef.current.value;
 
-        // Empty email check :
+        // Empty email check
         if (!email) {
-            // Sweet Alert :
-            const Toast = Swal.mixin({
+            Swal.fire({
                 toast: true,
                 position: "top-end",
                 showConfirmButton: false,
                 timer: 3000,
                 timerProgressBar: true,
-                didOpen: (toast) => {
-                    toast.onmouseenter = Swal.stopTimer;
-                    toast.onmouseleave = Swal.resumeTimer;
-                }
-            });
-            Toast.fire({
                 icon: "warning",
-                title: "Please! enter your email first."
+                title: "Please enter your email address first."
             });
+            return;
         }
-        else {
-            //? Reset Password:
+        
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            Swal.fire({
+                toast: true,
+                position: "top-end",
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true,
+                icon: "warning",
+                title: "Please enter a valid email address."
+            });
+            return;
+        }
+
+        try {
             await forgotPassword(email);
 
-            // Sweet Alert :
-            const Toast = Swal.mixin({
+            Swal.fire({
                 toast: true,
                 position: "top-end",
                 showConfirmButton: false,
                 timer: 3000,
                 timerProgressBar: true,
-                didOpen: (toast) => {
-                    toast.onmouseenter = Swal.stopTimer;
-                    toast.onmouseleave = Swal.resumeTimer;
-                }
-            });
-            Toast.fire({
                 icon: "success",
-                title: "Done! Please check your email."
+                title: "Password reset email sent! Please check your inbox."
+            });
+        } catch (err) {
+            console.error('Password reset error:', err);
+            const errorMessage = getFirebaseErrorMessage(err);
+            Swal.fire({
+                toast: true,
+                position: "top-end",
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true,
+                icon: "error",
+                title: errorMessage
             });
         }
-    };
+    }, [forgotPassword]);
 
-    return <>
-        {/* Helmet */}
-        <Helmet>
-            <title>Log Back In - Shelfy</title>
-            <meta name="description" content="Missed us? Hop back in and grab your books!" />
-        </Helmet>
+    // Memoized password visibility toggle
+    const togglePasswordVisibility = useCallback(() => {
+        setShowPassword(prev => !prev);
+    }, []);
 
-        {/* Content */}
-        <section className="dark:bg-[var(--color-bg)]">
+    return (
+        <>
+            {/* Helmet */}
+            <Helmet>
+                <title>Log Back In - Shelfy</title>
+                <meta name="description" content="Missed us? Hop back in and grab your books!" />
+            </Helmet>
+
             {/* Page Banner */}
             <div className="flex justify-between items-center bg-[#e6eff2] dark:bg-[#19343d] sm:py-6 py-12">
                 {/* Left Image */}
@@ -178,7 +344,6 @@ const Login = () => {
                     className="hidden sm:block w-28 md:w-34 lg:w-40 pt-10"
                 />
             </div>
-
 
             {/* Main Content */}
             <div className="flex justify-center items-center py-10 md:px-6 sm:px-20">
@@ -211,6 +376,7 @@ const Login = () => {
                                     name='email'
                                     placeholder="Email Address"
                                     className="w-full dark:text-gray-300 border-b border-gray-300 dark:border-slate-400 focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 py-1 mt-1 placeholder-gray-500 dark:placeholder-gray-400"
+                                    required
                                 />
                             </div>
 
@@ -221,10 +387,11 @@ const Login = () => {
                                     name='password'
                                     placeholder="Password"
                                     className="w-full dark:text-gray-300 border-b border-gray-300 dark:border-slate-400 focus:outline-none focus:border-blue-600 dark:focus:border-blue-400 py-1 mt-1 placeholder-gray-500 dark:placeholder-gray-400"
+                                    required
                                 />
                                 <span
                                     className="absolute right-3 top-2.5 text-gray-500 dark:text-gray-300 cursor-pointer"
-                                    onClick={() => setShowPassword(!showPassword)}
+                                    onClick={togglePasswordVisibility}
                                 >
                                     {showPassword ? <FaEyeSlash /> : <FaEye />}
                                 </span>
@@ -269,7 +436,8 @@ const Login = () => {
                     </div>
                 </div>
             </div>
-        </section>
-    </>
+        </>
+    );
 };
+
 export default Login;

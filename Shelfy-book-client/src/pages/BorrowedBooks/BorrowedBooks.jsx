@@ -7,7 +7,7 @@ import { IoIosArrowForward } from "react-icons/io";
 import { FaUser } from 'react-icons/fa';
 import { IoMdReturnRight } from "react-icons/io";
 import Swal from 'sweetalert2';
-import useAuth from '../../hooks/useAuth';
+import useAuth from '../../hooks/UseAuth';
 import axios from 'axios';
 import useAxiosSecure from '../../hooks/useAxiosSecure';
 import { patchBook } from '../../api/bookApis';
@@ -23,7 +23,12 @@ const BorrowedBooks = () => {
 
         const fetchBorrowedBooks = async () => {
             try {
-                const res = await axios.get(`https://shelfy-book-server.vercel.app/borrowedBooks/${user.email}`);
+                // Create axios instance with base URL
+                const axiosInstance = axios.create({
+                    baseURL: import.meta.env.VITE_server_url
+                });
+                
+                const res = await axiosInstance.get(`/api/borrowedBooks/${user.email}`);
                 setBorrowedBooks(res.data);
             } catch (error) {
                 console.error("Error fetching borrowed books:", error);
@@ -39,7 +44,12 @@ const BorrowedBooks = () => {
             await patchBook(axiosSecure, bookId, {
                 quantity: currentQuantity + 1
             });
-            await axios.delete(`https://shelfy-book-server.vercel.app/deleteBorrowedBook/${borrowedId}`);
+            // Create axios instance with base URL
+            const axiosInstance = axios.create({
+                baseURL: import.meta.env.VITE_server_url
+            });
+            
+            await axiosInstance.delete(`/api/deleteBorrowedBook/${borrowedId}`);
 
             // Sweet Alert :
             const Toast = Swal.mixin({

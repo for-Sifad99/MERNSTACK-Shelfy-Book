@@ -5,31 +5,52 @@ import leftBook from '../../assets/commonBanners/leftBook.png';
 import rightBook from '../../assets/commonBanners/rightBook.png';
 import { IoIosArrowForward } from "react-icons/io";
 import { MdOutlineProductionQuantityLimits, MdOutlineCategory } from "react-icons/md";
-import { FaGripLinesVertical } from "react-icons/fa";
+import { FaGripLinesVertical, FaTrash, FaEdit } from "react-icons/fa";
 import { IoCart } from "react-icons/io5";
 import { Rating, Star } from '@smastrom/react-rating';
 import '@smastrom/react-rating/style.css';
 import { toast } from "react-toastify";
 import Swal from "sweetalert2";
 import axios from "axios";
-import useAuth from "../../hooks/useAuth";
+import useAuth from "../../hooks/UseAuth";
 import useAxiosSecure from '../../hooks/useAxiosSecure';
 import { patchBook } from '../../api/bookApis';
-
+import { useSocket } from '../../contexts/SocketContext'; // Add socket context import
 
 const BookDetails = () => {
     const { id } = useParams();
     const axiosSecure = useAxiosSecure();
     const { user } = useAuth();
+    const { emitRating, emitComment } = useSocket(); // Add socket context
     const [book, setBook] = useState({});
     const [showModal, setShowModal] = useState(false);
     const [returnDate, setReturnDate] = useState("");
+    const [userRating, setUserRating] = useState(0); // User's rating
+    const [userComment, setUserComment] = useState(""); // User's comment
+    const [bookComments, setBookComments] = useState([]); // All comments for this book
+    const [editingCommentId, setEditingCommentId] = useState(null); // Track which comment is being edited
+    const [editingCommentText, setEditingCommentText] = useState(""); // Text for editing comment
 
     useEffect(() => {
-        axios.get(`https://shelfy-book-server.vercel.app/allBooks/${id}`)
-            .then(res => setBook(res.data))
+        // Create axios instance with base URL
+        const axiosInstance = axios.create({
+            baseURL: import.meta.env.VITE_server_url
+        });
+        
+        axiosInstance.get(`/api/allBooks/${id}`)
+            .then(res => {
+                setBook(res.data);
+                // Initialize user rating if it exists in book data
+                if (res.data.ratings && res.data.ratings[user?.email]) {
+                    setUserRating(res.data.ratings[user.email]);
+                }
+                // Initialize comments if they exist
+                if (res.data.comments) {
+                    setBookComments(res.data.comments);
+                }
+            })
             .catch(err => console.error("Failed to fetch book info", err));
-    }, [id]);
+    }, [id, user?.email]);
 
     const {
         bookImg,
@@ -41,6 +62,143 @@ const BookDetails = () => {
         category,
         quantity,
     } = book;
+
+    // Handle user rating submission
+    const handleRatingSubmit = async (newRating) => {
+        if (!user) {
+            toast.error("Please login to rate this book");
+            return;
+        }
+
+        try {
+            // Update rating in database
+            const updatedBook = await patchBook(axiosSecure, id, {
+                rating: newRating
+            });
+
+            // Update local state
+            setBook(prev => ({ ...prev, rating: newRating }));
+            setUserRating(newRating);
+
+            // Emit socket event for new rating
+            emitRating({
+                bookId: id,
+                bookTitle: bookTitle,
+                userName: user.displayName || user.email,
+                userId: user.uid,
+                rating: newRating
+            });
+
+            toast.success("Rating submitted successfully!");
+        } catch (error) {
+            console.error("Error submitting rating:", error);
+            toast.error("Failed to submit rating. Please try again.");
+        }
+    };
+
+    // Handle comment submission
+    const handleCommentSubmit = async (e) => {
+        e.preventDefault();
+        
+        if (!user) {
+            toast.error("Please login to comment on this book");
+            return;
+        }
+
+        if (!userComment.trim()) {
+            toast.error("Comment cannot be empty");
+            return;
+        }
+
+        try {
+            // Create comment object
+            const newComment = {
+                id: Date.now(),
+                userId: user.uid,
+                userName: user.displayName || user.email,
+                userEmail: user.email,
+                text: userComment,
+                timestamp: new Date().toISOString(),
+                isEditing: false
+            };
+
+            // Update comments in database
+            const updatedComments = editingCommentId 
+                ? bookComments.map(comment => 
+                    comment.id === editingCommentId 
+                        ? { ...comment, text: userComment, isEditing: false } 
+                        : comment
+                )
+                : [...bookComments, newComment];
+
+            await patchBook(axiosSecure, id, {
+                comments: updatedComments
+            });
+
+            // Update local state
+            setBookComments(updatedComments);
+            
+            // If editing, clear editing state
+            if (editingCommentId) {
+                setEditingCommentId(null);
+                setEditingCommentText("");
+                toast.success("Comment updated successfully!");
+            } else {
+                // If adding new comment, clear input and emit socket event
+                setUserComment("");
+                emitComment({
+                    bookId: id,
+                    bookTitle: bookTitle,
+                    userName: user.displayName || user.email,
+                    userId: user.uid,
+                    comment: userComment
+                });
+                toast.success("Comment added successfully!");
+            }
+        } catch (error) {
+            console.error("Error submitting comment:", error);
+            toast.error("Failed to submit comment. Please try again.");
+        }
+    };
+
+    // Handle comment deletion
+    const handleCommentDelete = async (commentId) => {
+        if (!user) {
+            toast.error("Please login to delete comments");
+            return;
+        }
+
+        try {
+            // Filter out the comment to be deleted
+            const updatedComments = bookComments.filter(comment => comment.id !== commentId);
+            
+            // Update comments in database
+            await patchBook(axiosSecure, id, {
+                comments: updatedComments
+            });
+
+            // Update local state
+            setBookComments(updatedComments);
+            toast.success("Comment deleted successfully!");
+        } catch (error) {
+            console.error("Error deleting comment:", error);
+            toast.error("Failed to delete comment. Please try again.");
+        }
+    };
+
+    // Handle comment editing
+    const handleCommentEdit = (comment) => {
+        setEditingCommentId(comment.id);
+        setEditingCommentText(comment.text);
+        setUserComment(comment.text);
+    };
+
+    // Cancel comment editing
+    const cancelCommentEdit = () => {
+        setEditingCommentId(null);
+        setEditingCommentText("");
+        setUserComment("");
+    };
 
     const handleBorrowSubmit = async (e) => {
         e.preventDefault();
@@ -54,7 +212,12 @@ const BookDetails = () => {
         }
         try {
             // 1. Borrow info save
-            await axios.post('https://shelfy-book-server.vercel.app/addBorrowedBookInfo', borrowedData);
+            // Create axios instance with base URL
+            const axiosInstance = axios.create({
+                baseURL: import.meta.env.VITE_server_url
+            });
+            
+            await axiosInstance.post(`/api/addBorrowedBookInfo`, borrowedData);
 
             // 2. Quantity decrease in DB
             await patchBook(axiosSecure, id, {
@@ -63,6 +226,14 @@ const BookDetails = () => {
 
             // 3. Update local state
             setBook(prev => ({ ...prev, quantity: quantity - 1 }));
+
+            // Emit socket event for new borrow
+            emitBorrow({
+                bookId: id,
+                bookTitle: bookTitle,
+                userName: user.displayName || user.email,
+                userId: user.uid
+            });
 
             // Sweet Alert :
             const Toast = Swal.mixin({
@@ -131,17 +302,38 @@ const BookDetails = () => {
                     <p className="text-sm font-bold dark:text-white -mt-2">By <span className="font-normal text-blue-600 dark:text-blue-400 underline">{authorName}</span></p>
 
                     {/* Ratings */}
-                    <Rating
-                        style={{ maxWidth: 80 }}
-                        value={rating}
-                        readOnly
-                        halfFillMode="svg"
-                        itemStyles={{
-                            itemShapes: Star,
-                            activeFillColor: '#ffa900',
-                            inactiveFillColor: '#e5e7eb',
-                        }}
-                    />
+                    <div className="flex items-center gap-4">
+                        <Rating
+                            style={{ maxWidth: 80 }}
+                            value={rating}
+                            readOnly
+                            halfFillMode="svg"
+                            itemStyles={{
+                                itemShapes: Star,
+                                activeFillColor: '#ffa900',
+                                inactiveFillColor: '#e5e7eb',
+                            }}
+                        />
+                        <span className="text-sm dark:text-gray-300">({rating || 0} stars)</span>
+                    </div>
+
+                    {/* User Rating */}
+                    {user && (
+                        <div className="mt-2">
+                            <p className="text-sm font-medium dark:text-white">Your Rating:</p>
+                            <Rating
+                                style={{ maxWidth: 120 }}
+                                value={userRating}
+                                onChange={handleRatingSubmit}
+                                halfFillMode="svg"
+                                itemStyles={{
+                                    itemShapes: Star,
+                                    activeFillColor: '#ffa900',
+                                    inactiveFillColor: '#e5e7eb',
+                                }}
+                            />
+                        </div>
+                    )}
 
                     <p className="sm:text-base text-xs dark:text-gray-300 text-gray-700">{shortDescription}</p>
 
@@ -169,6 +361,95 @@ const BookDetails = () => {
                         <h1 className='font-bold text-xl text-gray-700 dark:text-white'>Book Content :</h1>
                         <p>{bookContent}</p>
                     </div>
+                </div>
+            </div>
+
+            {/* Comments Section */}
+            <div className="max-w-5xl mx-auto px-4 py-8">
+                <h2 className="text-2xl font-bold text-[var(--color-dark-primary)] dark:text-[var(--color-light-primary)] mb-6">Comments</h2>
+                
+                {/* Comment Form */}
+                {user && (
+                    <form onSubmit={handleCommentSubmit} className="mb-8">
+                        <div className="mb-4">
+                            <label htmlFor="comment" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                {editingCommentId ? "Edit your comment" : "Add a comment"}
+                            </label>
+                            <textarea
+                                id="comment"
+                                value={userComment}
+                                onChange={(e) => setUserComment(e.target.value)}
+                                rows={3}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-[var(--color-primary-orange)] focus:border-[var(--color-primary-orange)] dark:bg-[#2d3748] dark:text-white"
+                                placeholder="Share your thoughts about this book..."
+                                required
+                            />
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                type="submit"
+                                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[var(--color-primary-orange)] hover:bg-[#e65100] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-primary-orange)]"
+                            >
+                                {editingCommentId ? "Update Comment" : "Post Comment"}
+                            </button>
+                            {editingCommentId && (
+                                <button
+                                    type="button"
+                                    onClick={cancelCommentEdit}
+                                    className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-primary-orange)] dark:bg-gray-700 dark:text-white dark:border-gray-600 dark:hover:bg-gray-600"
+                                >
+                                    Cancel
+                                </button>
+                            )}
+                        </div>
+                    </form>
+                )}
+
+                {/* Comments List */}
+                <div className="space-y-6">
+                    {bookComments.length > 0 ? (
+                        bookComments.map((comment) => (
+                            <div key={comment.id} className="bg-white dark:bg-[#1f2937] rounded-lg shadow p-4">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-sm font-medium text-gray-900 dark:text-white">
+                                                {comment.userName}
+                                            </span>
+                                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                                                {new Date(comment.timestamp).toLocaleDateString()}
+                                            </span>
+                                        </div>
+                                        <p className="text-gray-700 dark:text-gray-300">
+                                            {comment.text}
+                                        </p>
+                                    </div>
+                                    {user && user.email === comment.userEmail && (
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => handleCommentEdit(comment)}
+                                                className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300"
+                                                title="Edit"
+                                            >
+                                                <FaEdit size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleCommentDelete(comment.id)}
+                                                className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                                                title="Delete"
+                                            >
+                                                <FaTrash size={16} />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-gray-500 dark:text-gray-400 text-center py-4">
+                            No comments yet. Be the first to comment!
+                        </p>
+                    )}
                 </div>
             </div>
 

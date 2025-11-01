@@ -10,7 +10,7 @@ import { FaUser } from 'react-icons/fa';
 import { LuTableProperties, LuTableOfContents } from "react-icons/lu";
 import { MdTipsAndUpdates } from "react-icons/md";
 import { toast } from 'react-toastify';
-import useAuth from '../../hooks/useAuth';
+import useAuth from '../../hooks/UseAuth';
 import Loader from '../Shared/Loader';
 import Pagination from '../Shared/Pagination';
 import axios from 'axios';
@@ -31,7 +31,12 @@ const AllBooks = () => {
     useEffect(() => {
         const fetchCategoryBooks = async () => {
             try {
-                const res = await axios.get(`https://shelfy-book-server.vercel.app/allBooks?page=${currentPage}&limit=${itemsPerPage}`);
+                // Create axios instance with base URL
+                const axiosInstance = axios.create({
+                    baseURL: import.meta.env.VITE_server_url
+                });
+                
+                const res = await axiosInstance.get(`/api/allBooks?page=${currentPage}&limit=${itemsPerPage}`);
                 setBooks(res.data.books);
                 setTotalPages(res.data.totalPages);
             } catch (error) {
@@ -60,13 +65,13 @@ const AllBooks = () => {
         setView(viewType);
     };
 
-    const handleUpdateClick = (bookId) => {
+    const handleDetailsClick = (bookId) => {
         if (user) {
             // user logged in → navigate to book details
-            navigate(`/update-book/${bookId}`);
+            navigate(`/book-details/${bookId}`);
         } else {
             // user not logged in → show toast
-            toast.warning('Please login first to update book!');
+            toast.warning('Please login first to view book details!');
         }
     };
 
@@ -194,11 +199,11 @@ const AllBooks = () => {
                                                     {book.bookTitle}
                                                 </h1>
                                                 <button
-                                                    onClick={() => handleUpdateClick(book._id)}
+                                                    onClick={() => handleDetailsClick(book._id)}
                                                     className='relative overflow-hidden group text-xs font-semibold px-6 py-[8px] w-full flex justify-center text-[var(--color-dark-secondary)] group-hover:text-white group-hover:font-bold  bg-[#eeebfd] rounded-full transition-all duration-300'>
                                                     <span className="absolute left-0 top-0 h-full w-0 bg-[var(--color-primary-orange)] transition-all duration-500 group-hover:w-full z-0"></span>
                                                     <span className='relative z-10 flex gap-1 items-center'>
-                                                        <MdTipsAndUpdates /> Update
+                                                        <MdTipsAndUpdates /> Details
                                                     </span>
                                                 </button>
                                             </div>
@@ -244,11 +249,11 @@ const AllBooks = () => {
                                                     </td>
                                                     <td className="border-b-2 border-gray-200 dark:border-[#374151] px-4 py-2">
                                                         <button
-                                                            onClick={() => handleUpdateClick(book._id)}
+                                                            onClick={() => handleDetailsClick(book._id)}
                                                             className='relative overflow-hidden group text-xs font-semibold px-6 py-[8px] w-full flex justify-center text-[var(--color-dark-secondary)] hover:text-white group-hover:font-bold  bg-[#eeebfd] rounded-full transition-all duration-300'>
                                                             <span className="absolute left-0 top-0 h-full w-0 bg-[var(--color-primary-orange)] transition-all duration-500 group-hover:w-full z-0"></span>
                                                             <span className='relative z-10 flex gap-1 items-center'>
-                                                                <MdTipsAndUpdates /> Update
+                                                                <MdTipsAndUpdates /> Details
                                                             </span>
                                                         </button>
                                                     </td>

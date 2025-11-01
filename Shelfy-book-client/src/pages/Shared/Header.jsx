@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Link, NavLink, useLocation } from 'react-router';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router';
 import { FaArrowRight, FaHourglassStart, FaUser } from 'react-icons/fa6';
-import { TiArrowSortedDown, TiArrowSortedUp } from "react-icons/ti";
 import { IoIosSunny, IoIosMoon } from "react-icons/io";
 import { RiLoginCircleLine } from "react-icons/ri";
 import { MdNotStarted } from "react-icons/md";
@@ -24,17 +23,23 @@ import {
     FiLogIn,
 } from 'react-icons/fi';
 import useTheme from '../../hooks/ThemeContext';
-import useAuth from "../../hooks/UseAuth";
+import useAuth from "../../hooks/useAuth";
+import useAxiosSecure from '../../hooks/useAxiosSecure';
 import Profile from './Profile';
 
 const Header = () => {
     const { user } = useAuth();
+    const axiosSecure = useAxiosSecure();
     const [currentTime, setCurrentTime] = useState('');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const { theme, toggleTheme } = useTheme();
     const location = useLocation();
+    const navigate = useNavigate();
 
-    // Navbar links (unchanged)
+    // Check if user needs email verification
+    const needsEmailVerification = user && !user.emailVerified && user.providerData[0].providerId === 'password';
+
+    // Navbar links
     const navLinks = <>
         <NavLink
             to="/"
@@ -46,11 +51,6 @@ const Header = () => {
             }
         >
             Home
-            {location.pathname === '/' ? (
-                <TiArrowSortedDown className="ml-[2px] text-sm text-[var(--color-primary-orange)] dark:text-orange-300" />
-            ) : (
-                <TiArrowSortedUp className="ml-[2px] text-sm" />
-            )}
         </NavLink>
 
         <NavLink
@@ -63,15 +63,22 @@ const Header = () => {
             }
         >
             All Books
-            {location.pathname === '/all-books' ? (
-                <TiArrowSortedDown className="ml-[2px] text-sm text-[var(--color-primary-orange)] dark:text-orange-300" />
-            ) : (
-                <TiArrowSortedUp className="ml-[2px] text-sm" />
-            )}
         </NavLink>
 
         {
-            user && <>
+            user && !needsEmailVerification && <>
+                <NavLink
+                    to="/my-books"
+                    className={({ isActive }) =>
+                        `flex items-center hover:text-[var(--color-primary-orange)] hover:dark:text-orange-300 ${isActive
+                            ? 'text-[var(--color-primary-orange)] dark:text-orange-300'
+                            : ''
+                        }`
+                    }
+                >
+                    My Books
+                </NavLink>
+
                 <NavLink
                     to="/add-books"
                     className={({ isActive }) =>
@@ -82,11 +89,6 @@ const Header = () => {
                     }
                 >
                     Add Books
-                    {location.pathname === '/add-books' ? (
-                        <TiArrowSortedDown className="ml-[2px] text-sm text-[var(--color-primary-orange)] dark:text-orange-300" />
-                    ) : (
-                        <TiArrowSortedUp className="ml-[2px] text-sm" />
-                    )}
                 </NavLink>
 
                 <NavLink
@@ -99,11 +101,6 @@ const Header = () => {
                     }
                 >
                     Borrowed
-                    {location.pathname === '/borrowed-books' ? (
-                        <TiArrowSortedDown className="ml-[2px] text-sm text-[var(--color-primary-orange)] dark:text-orange-300" />
-                    ) : (
-                        <TiArrowSortedUp className="ml-[2px] text-sm" />
-                    )}
                 </NavLink>
             </>
         }
@@ -117,11 +114,6 @@ const Header = () => {
             }
         >
             Blogs
-            {location.pathname === '/blogs' ? (
-                <TiArrowSortedDown className="ml-[2px] text-sm text-[var(--color-primary-orange)] dark:text-orange-300" />
-            ) : (
-                <TiArrowSortedUp className="ml-[2px] text-sm" />
-            )}
         </NavLink>
     </>;
 
@@ -135,9 +127,6 @@ const Header = () => {
             }
         >
             <span>Home</span>
-            {location.pathname === '/' ?
-                <TiArrowSortedDown className="text-sm text-[var(--color-primary-orange)]" /> :
-                <TiArrowSortedUp className="text-sm" />}
         </NavLink>
 
         <NavLink
@@ -149,12 +138,20 @@ const Header = () => {
             }
         >
             <span>All Books</span>
-            {location.pathname === '/all-books' ?
-                <TiArrowSortedDown className="text-sm text-[var(--color-primary-orange)]" /> :
-                <TiArrowSortedUp className="text-sm" />}
         </NavLink>
 
-        {user && <>
+        {user && !needsEmailVerification && <>
+            <NavLink
+                to="/my-books"
+                onClick={() => setIsSidebarOpen(false)}
+                className={({ isActive }) =>
+                    `flex items-center justify-between rounded hover:text-[var(--color-primary-orange)]
+        ${isActive ? 'text-[var(--color-primary-orange)]' : ''}`
+                }
+            >
+                <span>My Books</span>
+            </NavLink>
+
             <NavLink
                 to="/add-books"
                 onClick={() => setIsSidebarOpen(false)}
@@ -164,9 +161,6 @@ const Header = () => {
                 }
             >
                 <span>Add Books</span>
-                {location.pathname === '/add-books' ?
-                    <TiArrowSortedDown className="text-sm text-[var(--color-primary-orange)]" /> :
-                    <TiArrowSortedUp className="text-sm" />}
             </NavLink>
 
             <NavLink
@@ -178,9 +172,6 @@ const Header = () => {
                 }
             >
                 <span>Borrowed</span>
-                {location.pathname === '/borrowed-books' ?
-                    <TiArrowSortedDown className="text-sm text-[var(--color-primary-orange)]" /> :
-                    <TiArrowSortedUp className="text-sm" />}
             </NavLink>
         </>}
 
@@ -193,9 +184,6 @@ const Header = () => {
             }
         >
             <span>Blogs</span>
-            {location.pathname === '/blogs' ?
-                <TiArrowSortedDown className="text-sm text-[var(--color-primary-orange)]" /> :
-                <TiArrowSortedUp className="text-sm" />}
         </NavLink>
     </>;
 
@@ -359,19 +347,34 @@ const Header = () => {
 
                         {/* Conditional Login, Register and Explore Books button */}
                         {
-                            user ? <div className='mt-2 mb-1'>
-                                <Link to='/all-books'>
-                                    <button
-                                        onClick={() => setIsSidebarOpen(false)}
-                                        className='relative overflow-hidden group text-xs font-semibold px-6 py-[10px] w-full flex justify-center bg-[var(--color-dark-secondary)] text-white rounded-full'>
-                                        <span className="absolute left-0 top-0 h-full w-0 bg-[var(--color-primary-orange)] transition-all duration-500 group-hover:w-full z-0"></span>
-                                        <span className='relative z-10 flex gap-1 items-center'>
-                                            Explore Books<FaArrowRight />
-                                        </span>
-                                    </button>
-                                </Link>
-                            </div>
-                                : <div className='flex flex-col gap-1 mt-2 mb-1'>
+                            user ? (
+                                needsEmailVerification ? (
+                                    <div className='mt-2 mb-1'>
+                                        <button
+                                            onClick={() => navigate('/email-verification')}
+                                            className='relative overflow-hidden group text-xs font-semibold px-6 py-[10px] w-full flex justify-center bg-[var(--color-dark-secondary)] text-white rounded-full'>
+                                            <span className="absolute left-0 top-0 h-full w-0 bg-[var(--color-primary-orange)] transition-all duration-500 group-hover:w-full z-0"></span>
+                                            <span className='relative z-10 flex gap-1 items-center'>
+                                                Verify Email
+                                            </span>
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className='mt-2 mb-1'>
+                                        <Link to='/all-books'>
+                                            <button
+                                                onClick={() => setIsSidebarOpen(false)}
+                                                className='relative overflow-hidden group text-xs font-semibold px-6 py-[10px] w-full flex justify-center bg-[var(--color-dark-secondary)] text-white rounded-full'>
+                                                <span className="absolute left-0 top-0 h-full w-0 bg-[var(--color-primary-orange)] transition-all duration-500 group-hover:w-full z-0"></span>
+                                                <span className='relative z-10 flex gap-1 items-center'>
+                                                    Explore Books<FaArrowRight />
+                                                </span>
+                                            </button>
+                                        </Link>
+                                    </div>
+                                )
+                            ) : (
+                                <div className='flex flex-col gap-1 mt-2 mb-1'>
                                     <Link to='/login'>
                                         <button
                                             onClick={() => setIsSidebarOpen(false)}
@@ -393,6 +396,7 @@ const Header = () => {
                                         </button>
                                     </Link>
                                 </div>
+                            )
                         }
 
                         <div className="flex text-xs">

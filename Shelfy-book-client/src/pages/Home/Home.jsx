@@ -5,9 +5,11 @@ import InfoBanner from './InfoBanner';
 import Categories from './Categories';
 import HighRatingBooks from './HighRating';
 import LatestNews from './LatestNews';
-
+import useEmailVerification from '../../hooks/useEmailVerification';
 
 const Home = () => {
+    useEmailVerification();
+    
     return (
         <>
             {/* Helmet */}
